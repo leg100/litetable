@@ -26,7 +26,7 @@ func (d *data) At(row, column int) string {
 	return d.db.getCell(d.window.start+row, column)
 }
 
-func (d *data) Columns() int { return d.db.MaxColumns }
+func (d *data) Columns() int { return d.db.columns }
 
 func (d *data) Rows() int {
 	return min(d.db.getRowCount()-d.window.start, d.window.size)

@@ -37,8 +37,8 @@ var books = []struct {
 		author: "Ernest Hemingway",
 	},
 	{
-		title:  "James Joyce",
-		author: "Ulysses",
+		title:  "Ulysses",
+		author: "James Joyce",
 	},
 	{
 		title:  "Trans-Europe Express",

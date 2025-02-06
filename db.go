@@ -9,13 +9,13 @@ import (
 )
 
 type db struct {
-	MaxColumns int
-	conn       *sql.DB
-	nextRow    int
+	conn    *sql.DB
+	nextRow int
+	columns int
 }
 
 func newDB() (*db, error) {
-	conn, err := sql.Open("sqlite", "file::memory:")
+	conn, err := sql.Open("sqlite", "file:books.sql")
 	if err != nil {
 		return nil, err
 	}
@@ -38,14 +38,14 @@ func (db *db) insertRow(row []string) error {
 	if _, err := q.RunWith(db.conn).Exec(); err != nil {
 		return err
 	}
-	db.MaxColumns = max(db.MaxColumns, len(row))
+	db.columns = max(db.columns, len(row))
 	db.nextRow++
 	return nil
 }
 
 func (db *db) getCell(row, column int) string {
 	var value string
-	err := db.conn.QueryRow("SELECT value FROM cells WHERE column = ? ORDER BY value LIMIT 1 OFFSET ?", column, row).Scan(&value)
+	err := db.conn.QueryRow("SELECT value FROM cells WHERE column = ? ORDER BY (value AND column = 0) LIMIT 1 OFFSET ?", column, row).Scan(&value)
 	if err != nil {
 		log.Fatal("At(): ", err.Error())
 	}
