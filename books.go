@@ -1,47 +1,44 @@
 package main
 
-var books = []struct {
-	title  string
-	author string
-}{
+var books = [][]string{
 	{
-		title:  "The German Ideology",
-		author: "Marx & Engels",
+		"The German Ideology",
+		"Marx & Engels",
 	},
 	{
-		title:  "Death in Venice and Other Stories",
-		author: "Thomas Mann",
+		"Death in Venice and Other Stories",
+		"Thomas Mann",
 	},
 	{
-		title:  "Money",
-		author: "Martin Amis",
+		"Money",
+		"Martin Amis",
 	},
 	{
-		title:  "London Fields",
-		author: "Martin Amis",
+		"London Fields",
+		"Martin Amis",
 	},
 	{
-		title:  "Nana",
-		author: "Emile Zola",
+		"Nana",
+		"Emile Zola",
 	},
 	{
-		title:  "To Have and Have Not",
-		author: "Ernest Hemingway",
+		"To Have and Have Not",
+		"Ernest Hemingway",
 	},
 	{
-		title:  "The Sun Also Rises",
-		author: "Ernest Hemingway",
+		"The Sun Also Rises",
+		"Ernest Hemingway",
 	},
 	{
-		title:  "A Farewell to Arms",
-		author: "Ernest Hemingway",
+		"A Farewell to Arms",
+		"Ernest Hemingway",
 	},
 	{
-		title:  "Ulysses",
-		author: "James Joyce",
+		"Ulysses",
+		"James Joyce",
 	},
 	{
-		title:  "Trans-Europe Express",
-		author: "Owen Hatherley",
+		"Trans-Europe Express",
+		"Owen Hatherley",
 	},
 }

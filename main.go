@@ -19,7 +19,7 @@ func main() {
 	model.Height(7)
 
 	for _, book := range books {
-		err := model.Append([]string{book.author, book.title})
+		err := model.Append([]string{book[0], book[1]})
 		if err != nil {
 			panic(err.Error())
 		}
