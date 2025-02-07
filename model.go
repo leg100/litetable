@@ -21,6 +21,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case key.Matches(msg, keys.Quit):
 			return m, tea.Quit
+		case key.Matches(msg, keys.PreviousRow):
+			m.data.PreviousRow()
+		case key.Matches(msg, keys.NextRow):
+			m.data.NextRow()
 		case key.Matches(msg, keys.PageUp):
 			m.data.PageUp()
 		case key.Matches(msg, keys.PageDown):
