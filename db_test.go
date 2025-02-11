@@ -13,11 +13,13 @@ func TestDB_moveCursorSQL(t *testing.T) {
 		name    string
 		columns int
 		cursor  string
+		size    int
 		want    string
 	}{
 		{
 			name:    "init",
-			columns: 3,
+			columns: 2,
+			size:    3,
 			want: `
 				SELECT *
 				FROM (
@@ -27,29 +29,46 @@ func TestDB_moveCursorSQL(t *testing.T) {
 					LEFT JOIN(
 						SELECT row, value FROM cells WHERE column = 1
 					) AS c1 USING (row)
-					LEFT JOIN(
-						SELECT row, value FROM cells WHERE column = 2
-					) AS c2 USING (row)
 				)
-				LIMIT 10
+				ORDER BY row
+				LIMIT 3
 			`,
 		},
 		{
-			name:    "with cursor with no sort order",
+			name:    "move cursor down one row",
 			columns: 2,
+			size:    3,
 			cursor:  ` WHERE rowid >= 23`,
 			want: `
-				SELECT *
-				FROM (
-					(
-						SELECT row, value FROM cells WHERE column = 0
-					) AS c0
-					LEFT JOIN(
-						SELECT row, value FROM cells WHERE column = 1
-					) AS c1 USING (row)
+				SELECT * FROM (
+					SELECT *
+					FROM (
+						(
+							SELECT row, value FROM cells WHERE column = 0
+						) AS c0
+						LEFT JOIN(
+							SELECT row, value FROM cells WHERE column = 1
+						) AS c1 USING (row)
+					)
+					WHERE row <= 1
+					ORDER BY row DESC
+					LIMIT 3
 				)
-				WHERE rowid >= 23
-				LIMIT 10
+				UNION ALL
+				SELECT * FROM (
+					SELECT *
+					FROM (
+						(
+							SELECT row, value FROM cells WHERE column = 0
+						) AS c0
+						LEFT JOIN(
+							SELECT row, value FROM cells WHERE column = 1
+						) AS c1 USING (row)
+					)
+					WHERE row >= 3
+					ORDER BY row
+					LIMIT 3
+				)
 			`,
 		},
 	}
@@ -59,7 +78,7 @@ func TestDB_moveCursorSQL(t *testing.T) {
 			require.NoError(t, err)
 			db.columns = tt.columns
 			db.cursor = tt.cursor
-			sql, args := db.moveCursorSQL(0, moveCursorOptions{size: 10})
+			sql, args := db.moveCursorSQL(0, moveCursorOptions{size: tt.size})
 			assert.Equal(t, trimSQL(tt.want), sql)
 			assert.Len(t, args, 0)
 		})

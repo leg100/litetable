@@ -144,7 +144,8 @@ func (db *db) moveCursorSQL(n int, opts moveCursorOptions) (string, []any) {
 
 	if db.cursor != "" {
 		b.WriteString(db.cursor)
-	}
+	} else {
+		b.WriteString("
 
 	if opts.filter != "" {
 		if db.cursor != "" {
