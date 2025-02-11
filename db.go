@@ -64,7 +64,7 @@ type moveCursorOptions struct {
 }
 
 func (db *db) moveCursor(n int, opts moveCursorOptions) (window, error) {
-	sqls, args := db.moveCursorSQL(n, opts)
+	sqls, args := getJoinCellsSQL(0, 0, nil, nil, "")
 
 	var (
 		rowid  int
@@ -118,68 +118,6 @@ func (db *db) moveCursor(n int, opts moveCursorOptions) (window, error) {
 	}
 
 	return window{}, nil
-}
-
-func (db *db) moveCursorSQL(n int, opts moveCursorOptions) (string, []any) {
-	var (
-		b    strings.Builder
-		args []any
-	)
-	b.WriteString("SELECT *")
-	b.WriteString(" FROM ( ")
-	for i := range db.columns {
-		if i > 0 {
-			b.WriteString(" LEFT JOIN")
-		}
-		b.WriteString("(")
-		b.WriteString(" SELECT row, value FROM cells")
-		b.WriteString(fmt.Sprintf(" WHERE column = %d", i))
-		b.WriteString(" )")
-		b.WriteString(fmt.Sprintf(" AS c%d", i))
-		if i > 0 {
-			b.WriteString(" USING (row)")
-		}
-	}
-	b.WriteString(" )")
-
-	if db.cursor != "" {
-		b.WriteString(db.cursor)
-	} else {
-		b.WriteString("
-
-	if opts.filter != "" {
-		if db.cursor != "" {
-			b.WriteString(" AND")
-		} else {
-			b.WriteString(" WHERE")
-		}
-		for i := range db.columns {
-			if i > 0 {
-				b.WriteString(" OR")
-			} else {
-				b.WriteString(" WHERE")
-			}
-			b.WriteString(fmt.Sprintf(" c%d.value LIKE ?", i))
-			args = append(args, "%"+opts.filter+"%")
-		}
-	}
-
-	if len(opts.sort) > 0 {
-		b.WriteString(" ORDER BY ")
-		for i, order := range opts.sort {
-			if i > 0 {
-				b.WriteString(", ")
-			}
-			b.WriteString(fmt.Sprintf("c%d.value", order.Column))
-			if order.Descending {
-				b.WriteString(" DESC")
-			}
-		}
-	}
-
-	b.WriteString(fmt.Sprintf(" LIMIT %d", opts.size))
-
-	return b.String(), args
 }
 
 type getCellOptions struct {

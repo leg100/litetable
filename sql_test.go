@@ -5,15 +5,17 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-func TestDB_moveCursorSQL(t *testing.T) {
+func TestSQL_getWindowSQL(t *testing.T) {
 	tests := []struct {
 		name    string
 		columns int
-		cursor  string
 		size    int
+		rowid   *int
+		filter  string
+		order   []SortOrder
+		values  []string
 		want    string
 	}{
 		{
@@ -35,10 +37,10 @@ func TestDB_moveCursorSQL(t *testing.T) {
 			`,
 		},
 		{
-			name:    "move cursor down one row",
+			name:    "window with rowid but no order and no filter",
 			columns: 2,
 			size:    3,
-			cursor:  ` WHERE rowid >= 23`,
+			rowid:   intPtr(5),
 			want: `
 				SELECT * FROM (
 					SELECT *
@@ -50,7 +52,7 @@ func TestDB_moveCursorSQL(t *testing.T) {
 							SELECT row, value FROM cells WHERE column = 1
 						) AS c1 USING (row)
 					)
-					WHERE row <= 1
+					WHERE row <= 5
 					ORDER BY row DESC
 					LIMIT 3
 				)
@@ -65,7 +67,7 @@ func TestDB_moveCursorSQL(t *testing.T) {
 							SELECT row, value FROM cells WHERE column = 1
 						) AS c1 USING (row)
 					)
-					WHERE row >= 3
+					WHERE row >= 5
 					ORDER BY row
 					LIMIT 3
 				)
@@ -74,11 +76,14 @@ func TestDB_moveCursorSQL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			db, err := newDB()
-			require.NoError(t, err)
-			db.columns = tt.columns
-			db.cursor = tt.cursor
-			sql, args := db.moveCursorSQL(0, moveCursorOptions{size: tt.size})
+			sql, args := getWindowSQL(
+				tt.columns,
+				tt.size,
+				tt.rowid,
+				tt.order,
+				tt.filter,
+				tt.values...,
+			)
 			assert.Equal(t, trimSQL(tt.want), sql)
 			assert.Len(t, args, 0)
 		})
@@ -89,4 +94,8 @@ func trimSQL(sql string) string {
 	sql = strings.TrimSpace(sql)
 	sql = strings.Join(strings.Fields(sql), " ")
 	return sql
+}
+
+func intPtr(i int) *int {
+	return &i
 }
