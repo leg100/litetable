@@ -2,8 +2,10 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 
 	sq "github.com/Masterminds/squirrel"
@@ -14,6 +16,7 @@ type db struct {
 	conn    *sql.DB
 	nextRow int
 	columns int
+	cursor  string
 }
 
 func newDB() (*db, error) {
@@ -26,10 +29,6 @@ func newDB() (*db, error) {
 		return nil, err
 	}
 	_, err = conn.Exec("CREATE INDEX idx_value ON cells (value)")
-	if err != nil {
-		return nil, err
-	}
-	_, err = conn.Exec("CREATE TABLE cursor(row, PRIMARY KEY(row))")
 	if err != nil {
 		return nil, err
 	}
@@ -52,71 +51,134 @@ func (db *db) insertRow(rows ...[]string) error {
 	return nil
 }
 
+type window struct {
+	cells  [][]string
+	cursor int
+	start  int
+}
+
 type moveCursorOptions struct {
+	size   int
 	filter string
 	sort   []SortOrder
 }
 
-func (db *db) moveCursor(n int, opts moveCursorOptions) error {
-	var sql strings.Builder
-	sql.WriteString("UPDATE cursor")
-	sql.WriteString(" SET row = new_cursor")
-	sql.WriteString(" FROM (")
-	sql.WriteString(" SELECT * FROM (")
-	sql.WriteString(" SELECT row, IFNULL(LEAD(row, ?) OVER w, LAST_VALUE(row) OVER w) AS new_cursor FROM (")
+func (db *db) moveCursor(n int, opts moveCursorOptions) (window, error) {
+	sqls, args := db.moveCursorSQL(n, opts)
+
+	var (
+		rowid  int
+		values = make([]string, db.columns)
+		dest   = make([]any, 1+len(values))
+	)
+	dest[0] = &rowid
 	for i := range db.columns {
-		if i > 0 {
-			sql.WriteString(" LEFT JOIN")
-		}
-		sql.WriteString("(")
-		sql.WriteString("SELECT row, value FROM cells")
-		sql.WriteString(fmt.Sprintf(" WHERE column = %d", i))
-		sql.WriteString(")")
-		sql.WriteString(fmt.Sprintf(" AS c%d", i))
-		if i > 0 {
-			sql.WriteString(" USING (row)")
+		dest[i+1] = &values[i]
+	}
+	result, err := db.conn.Query(sqls, args...)
+	if errors.Is(err, sql.ErrNoRows) {
+		// Cursor is already on first/last row and cannot be moved.
+		return window{}, nil
+	} else if err != nil {
+		return window{}, fmt.Errorf("%w: %s", err, sqls)
+	}
+	defer result.Close()
+
+	for result.Next() {
+		if err := result.Scan(dest); err != nil {
+			return window{}, err
 		}
 	}
-	sql.WriteString(" )")
-
-	if opts.filter != "" {
-		for i := range db.columns {
-			if i > 0 {
-				sql.WriteString(" OR")
-			} else {
-				sql.WriteString(" WHERE")
-			}
-			sql.WriteString(fmt.Sprintf(" c%d.value LIKE '%%%s%%'", i, opts.filter))
-		}
+	if err := result.Err(); err != nil {
+		return window{}, err
 	}
 
-	sql.WriteString("WINDOW w AS (")
-
-	if len(opts.sort) > 0 {
-		sql.WriteString(" ORDER BY ")
+	// SQL query succeeded; now compose a query that'll be used to retrieve the
+	// cursor in future.
+	if len(opts.sort) == 0 {
+		db.cursor = " WHERE rowid >= " + strconv.Itoa(rowid)
+	} else {
+		var cursor strings.Builder
+		cursor.WriteString(" WHERE ")
 		for i, order := range opts.sort {
 			if i > 0 {
-				sql.WriteString(", ")
+				cursor.WriteString(" AND ")
 			}
-			sql.WriteString(fmt.Sprintf("c%d.value", order.Column))
+			cursor.WriteString(fmt.Sprintf("c%d.value ", order.Column))
 			if order.Descending {
-				sql.WriteString(" DESC")
+				cursor.WriteString("<= ")
+			} else {
+				cursor.WriteString(">= ")
+			}
+			cursor.WriteString(values[order.Column])
+		}
+		cursor.WriteString(" AND rowid = ")
+		cursor.WriteString(strconv.Itoa(rowid))
+		db.cursor = cursor.String()
+	}
+
+	return window{}, nil
+}
+
+func (db *db) moveCursorSQL(n int, opts moveCursorOptions) (string, []any) {
+	var (
+		b    strings.Builder
+		args []any
+	)
+	b.WriteString("SELECT *")
+	b.WriteString(" FROM ( ")
+	for i := range db.columns {
+		if i > 0 {
+			b.WriteString(" LEFT JOIN")
+		}
+		b.WriteString("(")
+		b.WriteString(" SELECT row, value FROM cells")
+		b.WriteString(fmt.Sprintf(" WHERE column = %d", i))
+		b.WriteString(" )")
+		b.WriteString(fmt.Sprintf(" AS c%d", i))
+		if i > 0 {
+			b.WriteString(" USING (row)")
+		}
+	}
+	b.WriteString(" )")
+
+	if db.cursor != "" {
+		b.WriteString(db.cursor)
+	}
+
+	if opts.filter != "" {
+		if db.cursor != "" {
+			b.WriteString(" AND")
+		} else {
+			b.WriteString(" WHERE")
+		}
+		for i := range db.columns {
+			if i > 0 {
+				b.WriteString(" OR")
+			} else {
+				b.WriteString(" WHERE")
+			}
+			b.WriteString(fmt.Sprintf(" c%d.value LIKE ?", i))
+			args = append(args, "%"+opts.filter+"%")
+		}
+	}
+
+	if len(opts.sort) > 0 {
+		b.WriteString(" ORDER BY ")
+		for i, order := range opts.sort {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(fmt.Sprintf("c%d.value", order.Column))
+			if order.Descending {
+				b.WriteString(" DESC")
 			}
 		}
 	}
-	// sqlite> update cursor set row = new_cursor from (select * from (select row, ifnull(lead(row, 3) over w, last_value(row) over w) as new_cursor from ((select row, value from cells where column = 0) as c0 left join (select row, value from cells where column = 1) as c1 using(row)) where c0.value like '%E%' window w as (order by c0.value rows between unbounded preceding and unbounded following))) as rows where cursor.row = rows.row;
 
-	sql.WriteString("ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)")
+	b.WriteString(fmt.Sprintf(" LIMIT %d", opts.size))
 
-	sql.WriteString(") WHERE row = ")
-	sql.WriteString(fmt.Sprintf(" OFFSET %d", row))
-
-	var value string
-	if err := db.conn.QueryRow(sql.String()).Scan(&value); err != nil {
-		return "", fmt.Errorf("%w: %s", err, sql.String())
-	}
-
-	return value, nil
+	return b.String(), args
 }
 
 type getCellOptions struct {
@@ -125,56 +187,59 @@ type getCellOptions struct {
 }
 
 func (db *db) getCell(row, column int, opts getCellOptions) (string, error) {
-	var sql strings.Builder
-	sql.WriteString(fmt.Sprintf("SELECT c%d.value", column))
-	sql.WriteString(" FROM (")
+	var (
+		b    strings.Builder
+		args []any
+	)
+	b.WriteString(fmt.Sprintf("SELECT c%d.value", column))
+	b.WriteString(" FROM (")
 	for i := range db.columns {
 		if i > 0 {
-			sql.WriteString(" LEFT JOIN")
+			b.WriteString(" LEFT JOIN")
 		}
-		sql.WriteString("(")
-		sql.WriteString("SELECT row, value FROM cells")
-		sql.WriteString(fmt.Sprintf(" WHERE column = %d", i))
-		sql.WriteString(")")
-		sql.WriteString(fmt.Sprintf(" AS c%d", i))
+		b.WriteString("(")
+		b.WriteString("SELECT row, value FROM cells")
+		b.WriteString(fmt.Sprintf(" WHERE column = %d", i))
+		b.WriteString(")")
+		b.WriteString(fmt.Sprintf(" AS c%d", i))
 		if i > 0 {
-			sql.WriteString(" USING (row)")
+			b.WriteString(" USING (row)")
 		}
 	}
-	sql.WriteString(" )")
+	b.WriteString(" )")
 
 	if opts.filter != "" {
 		for i := range db.columns {
 			if i > 0 {
-				sql.WriteString(" OR")
+				b.WriteString(" OR")
 			} else {
-				sql.WriteString(" WHERE")
+				b.WriteString(" WHERE")
 			}
-			sql.WriteString(fmt.Sprintf(" c%d.value LIKE '%%%s%%'", i, opts.filter))
+			b.WriteString(fmt.Sprintf(" c%d.value LIKE ?", i))
+			args = append(args, "%"+opts.filter+"%")
 		}
 	}
 
 	if len(opts.sort) > 0 {
-		sql.WriteString(" ORDER BY ")
+		b.WriteString(" ORDER BY ")
 		for i, order := range opts.sort {
 			if i > 0 {
-				sql.WriteString(", ")
+				b.WriteString(", ")
 			}
-			sql.WriteString(fmt.Sprintf("c%d.value", order.Column))
+			b.WriteString(fmt.Sprintf("c%d.value", order.Column))
 			if order.Descending {
-				sql.WriteString(" DESC")
+				b.WriteString(" DESC")
 			}
 		}
 	}
 
-	sql.WriteString(" LIMIT 1")
-	sql.WriteString(fmt.Sprintf(" OFFSET %d", row))
+	b.WriteString(" LIMIT 1")
+	b.WriteString(fmt.Sprintf(" OFFSET %d", row))
 
 	var value string
-	if err := db.conn.QueryRow(sql.String()).Scan(&value); err != nil {
-		return "", fmt.Errorf("%w: %s", err, sql.String())
+	if err := db.conn.QueryRow(b.String(), args...).Scan(&value); err != nil {
+		return "", fmt.Errorf("%w: %s", err, b.String())
 	}
-
 	return value, nil
 }
 

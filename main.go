@@ -13,7 +13,7 @@ func main() {
 	model := Model{
 		data: data,
 		lgt: table.New().
-			Headers("cursor", "author", "title").
+			Headers("author", "title").
 			Data(data),
 	}
 	model.Height(7)

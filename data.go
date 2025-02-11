@@ -4,13 +4,13 @@ import "log"
 
 type data struct {
 	db     *db
-	window window
+	window dataWindow
 	cursor int
 	filter string
 	sort   []SortOrder
 }
 
-type window struct {
+type dataWindow struct {
 	start int
 	size  int
 }
